@@ -1,0 +1,385 @@
+==============================
+DATENWÖRTERBUCH – BOOKEXCHANGE
+==============================
+
+Beschreibt die Tabellen und Attribute aus SQL/Phase2/5createTables.sql (PostgreSQL).
+Das zugehörige ER-Modell steht in ERM_BookExchange.puml.
+
+Stand: 20.10.2026
+
+
+Übersicht
+=========
+
+Tabelle                Inhalt
+---------------------  --------------------------------------------------
+Users                  Benutzerkonten
+UserAdresses           Wohnadressen der Benutzer
+CollectionAdresses     Abholadressen, an denen Bücher abgeholt werden
+                       können
+CollectionTimeWindows  Abholzeiten pro Abholadresse
+Authors                Autoren
+Books                  Buchtitel (das Werk, unabhängig vom Exemplar)
+BookAuthors            Zuordnung von Büchern zu Autoren (n:m)
+Book_copy              Physische Exemplare, die Benutzer zum Verleih
+                       anbieten
+Lents                  Ausleihanfragen und Ausleihen
+Shipping               Versand eines ausgeliehenen Exemplars
+Reviews                Bewertungen von Büchern nach einer Ausleihe
+Messages               Nachrichten zwischen Benutzern
+Protocols              Ereignisprotokoll
+
+
+Legende
+=======
+
+- PK = Primärschlüssel, FK = Fremdschlüssel (→ Zieltabelle), UQ = Wert muss eindeutig sein
+- Pflicht: ja = darf nicht leer sein (NOT NULL)
+- Alle Primärschlüssel sind bigint GENERATED ALWAYS AS IDENTITY: Die Datenbank vergibt sie
+  automatisch fortlaufend. Ausnahme: BookAuthors hat einen zusammengesetzten Primärschlüssel
+  aus zwei Fremdschlüsseln.
+- Wird ein Datensatz gelöscht, werden abhängige Datensätze mitgelöscht (ON DELETE CASCADE).
+  Ausnahmen sind beim jeweiligen Fremdschlüssel angegeben.
+
+
+Datentypen
+==========
+
+Datentyp      Bedeutung
+------------  --------------------------------------------------
+bigint        Ganzzahl (64 Bit), für IDs
+integer       Ganzzahl (32 Bit)
+smallint      Kleine Ganzzahl (16 Bit)
+numeric(3,2)  Dezimalzahl mit 3 Stellen, davon 2
+              Nachkommastellen (höchstens 9,99)
+numeric(8,6)  Dezimalzahl mit 8 Stellen, davon 6
+              Nachkommastellen (für Breitengrade)
+numeric(9,6)  Dezimalzahl mit 9 Stellen, davon 6
+              Nachkommastellen (für Längengrade)
+text          Zeichenkette ohne Längenbegrenzung
+boolean       Wahrheitswert (true / false)
+date          Datum ohne Uhrzeit
+time          Uhrzeit ohne Datum
+timestamptz   Zeitpunkt (Datum und Uhrzeit) mit Zeitzone
+timerange     Eigener Bereichstyp (RANGE) über time, z. B.
+              10:00–12:00. Wird nur im Constraint
+              no_overlapping_window verwendet, nicht als
+              Spalte.
+
+
+Aufzählungstypen (ENUM)
+=======================
+
+Ein ENUM-Attribut darf nur einen der festgelegten Werte annehmen.
+
+Typ                    Erlaubte Werte                                      Verwendet in
+---------------------  --------------------------------------------------  -------------------------------
+user_role              user (Benutzer), moderator (Moderator), admin       Users.role
+                       (Administrator)
+lent_status            requested (angefragt), accepted (angenommen),       Lents.lent_status
+                       rejected (abgelehnt), active (verliehen),
+                       returned (zurückgegeben)
+shipping_status        pending (ausstehend), shipped (versendet),          Shipping.shipping_status
+                       delivered (zugestellt)
+protocol_type          create_request, accept_request, reject_request,     Protocols.protocol_type
+                       lending, returning, create_review,
+                       create_book, update_book, delete_book,
+                       create_user, update_user, delete_user,
+                       send_message, read_message
+shipping_availability  available (Versand möglich), not_available (nur     Book_copy.shipping_availability
+                       Abholung)
+book_condition         new (neu), like_new (wie neu), good (gut), fair     Book_copy.condition
+                       (akzeptabel), poor (stark abgenutzt)
+book_language          english, german, french, spanish, italian, other    Books.language
+genre                  Fiktion, Roman, Romantik, Drama, Komödie, Horror,   Books.genre
+                       Science-Fiction, Fantasy, Mystery, Liebesroman,
+                       Thriller, Biografie, Geschichte, Kinderbücher,
+                       Jugendbücher, Ratgeber, Gesundheit, Reisen,
+                       Kochen, Kunst, Fotografie, Lyrik, Religion,
+                       Philosophie
+
+
+Tabellen
+========
+
+
+Users – Benutzerkonten
+----------------------
+
+Attribut       Datentyp     Schlüssel  Pflicht  Beschreibung
+-------------  -----------  ---------  -------  --------------------------------------------------
+user_id        bigint       PK         ja       Eindeutige Benutzer-ID
+username       text         UQ         ja       Öffentlich angezeigter Benutzername
+first_name     text                    ja       Vorname
+last_name      text                    ja       Nachname
+email          text         UQ         ja       E-Mail-Adresse, dient zum Einloggen
+password_hash  text                    ja       Gehashtes Passwort (bcrypt). Das Passwort selbst
+                                                wird nie gespeichert.
+role           user_role               ja       Berechtigung in der App. Standard: user
+is_active      boolean                 ja       false = Konto deaktiviert oder gesperrt. Standard:
+                                                true
+created_at     timestamptz             ja       Zeitpunkt der Registrierung. Standard: jetzt
+updated_at     timestamptz             ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+
+UserAdresses – Wohnadressen
+---------------------------
+
+Attribut        Datentyp     Schlüssel   Pflicht  Beschreibung
+--------------  -----------  ----------  -------  --------------------------------------------------
+address_id      bigint       PK          ja       Eindeutige Adress-ID
+user_id         bigint       FK → Users  ja       Benutzer, der dort wohnt
+street_address  text                     ja       Straße und Hausnummer
+city            text                     ja       Ort
+state           text                     ja       Bundesland bzw. Kanton (CH)
+postal_code     text                     ja       Postleitzahl. Text statt Zahl, weil nicht alle
+                                                  Länder rein numerische Postleitzahlen verwenden.
+country         text                     ja       Land
+created_at      timestamptz              ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at      timestamptz              ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+
+CollectionAdresses – Abholadressen
+----------------------------------
+
+Attribut       Datentyp      Schlüssel   Pflicht  Beschreibung
+-------------  ------------  ----------  -------  --------------------------------------------------
+address_id     bigint        PK          ja       Eindeutige Adress-ID
+user_id        bigint        FK → Users  ja       Benutzer, dem die Abholadresse gehört
+streetname     text                      ja       Straßenname
+streetnummber  text                      ja       Hausnummer. Text, weil Zusätze wie „12a“ möglich
+                                                  sind.
+city           text                      ja       Ort
+state          text                      ja       Bundesland bzw. Kanton (CH)
+postal_code    text                      ja       Postleitzahl. Text statt Zahl, weil nicht alle
+                                                  Länder rein numerische Postleitzahlen verwenden.
+country        text                      nein     Land
+latitude       numeric(8,6)              nein     Breitengrad, 6 Nachkommastellen
+longitude      numeric(9,6)              nein     Längengrad, 6 Nachkommastellen
+created_at     timestamptz               ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at     timestamptz               ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+Regeln:
+- latitude liegt zwischen -90 und 90 (latitude_range).
+- longitude liegt zwischen -180 und 180 (longitude_range).
+- Entweder sind beide Koordinaten angegeben oder keine (coordinates_complete).
+
+
+CollectionTimeWindows – Abholzeiten
+-----------------------------------
+
+Zeitfenster, in denen Bücher an einer Abholadresse abgeholt werden können. Eine Adresse kann mehrere
+Zeitfenster haben. Die Zeitfenster wiederholen sich jede Woche.
+
+Attribut    Datentyp     Schlüssel                Pflicht  Beschreibung
+----------  -----------  -----------------------  -------  ------------------------------------------------
+window_id   bigint       PK                       ja       Eindeutige ID des Zeitfensters
+address_id  bigint       FK → CollectionAdresses  ja       Abholadresse, für die das Zeitfenster gilt
+weekday     smallint                              ja       Wochentag: 0 = Sonntag, 1 = Montag … 6 = Samstag
+start_time  time                                  ja       Beginn des Zeitfensters
+end_time    time                                  ja       Ende des Zeitfensters
+created_at  timestamptz                           ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at  timestamptz                           ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+Regeln:
+- weekday liegt zwischen 0 und 6.
+- start_time liegt vor end_time (window_valid).
+- Zeitfenster derselben Adresse am selben Wochentag dürfen sich nicht überschneiden
+  (no_overlapping_window). Das Ende zählt nicht mit: 10:00–12:00 und 12:00–14:00 sind erlaubt,
+  10:00–12:00 und 11:00–13:00 nicht. Der Constraint braucht die Erweiterung btree_gist.
+
+
+Authors – Autoren
+-----------------
+
+Ein Datensatz pro Autor. Die Zuordnung zu Büchern steht in BookAuthors.
+
+Attribut    Datentyp     Schlüssel  Pflicht  Beschreibung
+----------  -----------  ---------  -------  -----------------------------------------------
+author_id   bigint       PK         ja       Eindeutige Autoren-ID
+name        text                    ja       Vollständiger Name oder Pseudonym, z. B.
+                                             „J.R.R. Tolkien“
+created_at  timestamptz             ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at  timestamptz             ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+
+Books – Buchtitel
+-----------------
+
+Ein Datensatz pro Werk. Die einzelnen physischen Exemplare stehen in Book_copy, die Autoren über
+BookAuthors in Authors. Die Zuordnung eines Exemplars zu einem Buchtitel erfolgt automatisch, nicht
+durch den Benutzer.
+
+Attribut        Datentyp       Schlüssel  Pflicht  Beschreibung
+--------------  -------------  ---------  -------  -----------------------------------------------
+book_id         bigint         PK         ja       Eindeutige Buch-ID
+title           text                      ja       Titel
+published_date  date                      nein     Erscheinungsdatum
+genre           genre                     nein     Genre
+language        book_language             nein     Sprache des Buchs
+created_at      timestamptz               ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at      timestamptz               ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+
+BookAuthors – Zuordnung Buch ↔ Autor
+------------------------------------
+
+Zwischentabelle für die n:m-Beziehung: Ein Buch kann mehrere Autoren haben, ein Autor mehrere
+Bücher.
+
+Attribut   Datentyp  Schlüssel           Pflicht  Beschreibung
+---------  --------  ------------------  -------  --------------------------------------------------
+book_id    bigint    PK, FK → Books      ja       Buchtitel
+author_id  bigint    PK, FK → Authors    ja       Autor. Ein Autor kann erst gelöscht werden, wenn
+                                                  kein Buch mehr auf ihn verweist (RESTRICT).
+
+Regeln:
+- Der Primärschlüssel besteht aus book_id und author_id. Ein Autor kann einem Buch dadurch nur
+  einmal zugeordnet werden.
+
+Der Primärschlüssel-Index beginnt mit book_id und hilft nur bei der Suche nach den Autoren eines
+Buchs. Ein zusätzlicher Index auf author_id beschleunigt die Suche nach allen Büchern eines Autors
+und die RESTRICT-Prüfung beim Löschen eines Autors.
+
+
+Book_copy – Buchexemplare
+-------------------------
+
+Ein physisches Exemplar, das ein Benutzer zum Verleih anbietet. Der Besitzer ergibt sich aus der
+Abholadresse (CollectionAdresses.user_id).
+
+Attribut               Datentyp               Schlüssel                Pflicht  Beschreibung
+---------------------  ---------------------  -----------------------  -------  --------------------------------------------------
+book_copie_id          bigint                 PK                       ja       Eindeutige Exemplar-ID
+book_id                bigint                 FK → Books               ja       Buchtitel, zu dem das Exemplar gehört. Ein
+                                                                                Buchtitel kann erst gelöscht werden, wenn keine
+                                                                                Exemplare mehr darauf verweisen (RESTRICT).
+condition              book_condition                                  nein     Zustand des Exemplars
+max_lent_duration      integer                                         ja       Maximale Leihdauer in Tagen. Standard: 60
+collection_address_id  bigint                 FK → CollectionAdresses  ja       Abholort, legt auch den Besitzer fest. Eine
+                                                                                Adresse kann erst gelöscht werden, wenn keine
+                                                                                Exemplare mehr darauf verweisen (RESTRICT).
+shipping_availability  shipping_availability                           nein     Ob der Verleiher Versand anbietet. Standard:
+                                                                                not_available
+shipping_cost          numeric(3,2)                                    nein     Versandkosten in Euro (höchstens 9,99). Standard:
+                                                                                4,00
+created_at             timestamptz                                     ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at             timestamptz                                     ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+Indizes auf book_id und collection_address_id beschleunigen die RESTRICT-Prüfung beim Löschen eines
+Buchtitels oder einer Adresse.
+
+
+Lents – Ausleihen
+-----------------
+
+Eine Ausleihe beginnt als Anfrage des Ausleihers und wird erst wirksam, wenn der Verleiher sie
+annimmt. Ablauf: requested → accepted → active → returned, oder requested → rejected.
+
+Der Verleiher wird nicht gespeichert, sondern über das Exemplar ermittelt:
+book_copie_id → Book_copy.collection_address_id → CollectionAdresses.user_id. Dadurch kann er nicht
+vom tatsächlichen Besitzer abweichen.
+
+Attribut                 Datentyp     Schlüssel       Pflicht  Beschreibung
+-----------------------  -----------  --------------  -------  --------------------------------------------------
+lent_id                  bigint       PK              ja       Eindeutige Ausleih-ID
+lent_status              lent_status                  ja       Aktueller Stand der Ausleihe: angefragt,
+                                                               angenommen, abgelehnt, verliehen oder
+                                                               zurückgegeben
+book_copie_id            bigint       FK → Book_copy  ja       Verliehenes Exemplar
+lent_to                  bigint       FK → Users      ja       Ausleiher
+shipping_requested       boolean                      nein     true = Ausleiher wünscht Versand statt Abholung.
+                                                               Standard: false
+lent_startdate           timestamptz                  ja       Beginn der Ausleihe. Standard: jetzt
+lent_enddate             timestamptz                  ja       Vereinbartes Rückgabedatum. Standard: jetzt + 60
+                                                               Tage
+lent_requesttimestamp    timestamptz                  ja       Zeitpunkt der Ausleihanfrage. Standard: jetzt
+return_date              timestamptz                  nein     Tatsächliches Rückgabedatum. Leer, solange das
+                                                               Exemplar nicht zurückgegeben wurde.
+
+Regeln:
+- lent_startdate liegt vor lent_enddate (lent_dates_valid).
+- Eine Ausleihe dauert höchstens 120 Tage (lent_date_max_duration).
+- Ein Exemplar kann nur einmal gleichzeitig verliehen sein: Pro Exemplar gibt es höchstens eine
+  Ausleihe mit Status accepted oder active (eindeutiger Index lents_one_open_per_copy). Mehrere
+  offene Anfragen (requested) für dasselbe Exemplar sind erlaubt. Der Index verhindert auch, dass
+  zwei gleichzeitige Transaktionen dasselbe Exemplar verleihen.
+- Nicht durch die Tabelle geprüft: Ausleiher und Besitzer müssen verschiedene Benutzer sein. Ein
+  CHECK kann keine anderen Tabellen abfragen, deshalb prüft das die Funktion create_book_request.
+- Den Status ändern die Funktionen create_book_request, accept_book_request, reject_book_request,
+  hand_over_book und return_book (SQL/Phase2/6createFunctions.sql). Sie prüfen auch, ob der
+  handelnde Benutzer dazu berechtigt ist, und schreiben einen Eintrag in Protocols.
+
+
+Shipping – Versand
+------------------
+
+Versand eines Exemplars im Rahmen einer Ausleihe. Empfänger und Exemplar ergeben sich aus der
+Ausleihe (Lents.lent_to, Lents.book_copie_id).
+
+Attribut         Datentyp         Schlüssel   Pflicht  Beschreibung
+---------------  ---------------  ----------  -------  -----------------------------------------------
+shipping_id      bigint           PK          ja       Eindeutige Versand-ID
+lent_id          bigint           FK → Lents  ja       Zugehörige Ausleihe
+shipping_status  shipping_status              ja       Aktueller Versandstatus
+tracking_number  text             UQ          nein     Sendungsnummer des Paketdienstes
+created_at       timestamptz                  ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at       timestamptz                  ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+
+Reviews – Bewertungen
+---------------------
+
+Eine Bewertung gehört zu einer Ausleihe. So können nur Benutzer bewerten, die das Buch tatsächlich
+ausgeliehen haben. Verfasser und Buch werden nicht gespeichert, sondern über die Ausleihe ermittelt:
+Verfasser = Lents.lent_to, Buchtitel über Lents.book_copie_id → Book_copy.book_id. Bewertet wird
+der Buchtitel, nicht das einzelne Exemplar.
+
+Attribut    Datentyp     Schlüssel       Pflicht  Beschreibung
+----------  -----------  --------------  -------  -----------------------------------------------
+review_id   bigint       PK              ja       Eindeutige Bewertungs-ID
+lent_id     bigint       FK → Lents, UQ  ja       Ausleihe, auf die sich die Bewertung bezieht
+rating      integer                      ja       Bewertung in Sternen von 1 bis 5
+comment     text                         nein     Bewertungstext
+created_at  timestamptz                  ja       Zeitpunkt der Anlage. Standard: jetzt
+updated_at  timestamptz                  ja       Zeitpunkt der letzten Änderung. Standard: jetzt
+
+Regeln:
+- rating liegt zwischen 1 und 5.
+- Pro Ausleihe gibt es höchstens eine Bewertung (lent_id ist eindeutig). Wer dasselbe Buch mehrmals
+  ausleiht, kann es nach jeder Ausleihe bewerten.
+- Nicht durch die Tabelle geprüft: Bewertet werden kann erst nach der Rückgabe (Status returned).
+  Das prüft die Funktion write_review.
+
+
+Messages – Nachrichten
+----------------------
+
+Attribut     Datentyp     Schlüssel   Pflicht  Beschreibung
+-----------  -----------  ----------  -------  ---------------------------------------------
+message_id   bigint       PK          ja       Eindeutige Nachrichten-ID
+sender_id    bigint       FK → Users  ja       Absender
+receiver_id  bigint       FK → Users  ja       Empfänger
+content      text                     ja       Nachrichtentext
+sent_at      timestamptz              ja       Sendezeitpunkt. Standard: jetzt
+read_status  boolean                  ja       true = vom Empfänger gelesen. Standard: false
+
+Regeln:
+- Absender und Empfänger müssen verschiedene Benutzer sein (message_not_self).
+
+
+Protocols – Ereignisprotokoll
+-----------------------------
+
+Protokolliert Aktionen wie Ausleihen, Rückgaben und das Anlegen, Ändern oder Löschen von Büchern und
+Benutzern. Wird ein Exemplar oder Benutzer gelöscht, bleibt der Protokolleintrag erhalten: Der
+Verweis wird auf leer gesetzt (ON DELETE SET NULL).
+
+Attribut       Datentyp       Schlüssel       Pflicht  Beschreibung
+-------------  -------------  --------------  -------  ------------------------------------------
+protocol_id    bigint         PK              ja       Eindeutige Protokoll-ID
+book_copie_id  bigint         FK → Book_copy  nein     Betroffenes Exemplar, falls vorhanden
+user_id        bigint         FK → Users      nein     Benutzer, der das Ereignis ausgelöst hat
+protocol_type  protocol_type                  ja       Art des Ereignisses
+details        text                           nein     Weitere Angaben zum Ereignis
+created_at     timestamptz                    ja       Zeitpunkt des Ereignisses. Standard: jetzt
