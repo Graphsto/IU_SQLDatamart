@@ -1,0 +1,7 @@
+# Dockerfile for the IU_SQLDatamart Phase3 environment
+FROM postgres:latest
+
+ENV POSTGRES_USER=postgres
+ENV POSTGRES_PASSWORD=postgres
+ENV POSTGRES_DB=iu_sqldatamart
+
