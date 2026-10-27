@@ -1,0 +1,284 @@
+@startuml BookExchange_ERM
+' Legende:  * = NOT NULL   |   <<PK>> Primärschlüssel   |   <<FK>> Fremdschlüssel   |   <<UQ>> UNIQUE
+'           Tabellen-Constraints (CHECK / UNIQUE / EXCLUDE) und Indizes stehen unter der gepunkteten Linie
+' Kardinalitäten (Crow's Foot):  ||  genau eins   |o  null oder eins   o{  null oder viele
+' Fremdschlüssel sind ON DELETE CASCADE, außer:
+'   Book_copy.book_id                -> RESTRICT
+'   Book_copy.collection_address_id  -> RESTRICT
+'   BookAuthors.author_id            -> RESTRICT
+'   Protocols.book_copie_id / user_id -> SET NULL
+
+hide circle
+skinparam linetype ortho
+
+' ========== Entitäten ==========
+entity "Users" as users {
+  * user_id : bigint <<PK>> <<identity>>
+  --
+  * username : text <<UQ>>
+  * first_name : text
+  * last_name : text
+  * email : text <<UQ>>
+  * password_hash : text
+  * role : user_role = 'user'
+  * is_active : boolean = true
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+}
+
+entity "UserAdresses" as user_addr {
+  * address_id : bigint <<PK>> <<identity>>
+  --
+  * user_id : bigint <<FK>>
+  * street_address : text
+  * city : text
+  * state : text
+  * postal_code : text
+  * country : text
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+}
+
+entity "CollectionAdresses" as coll_addr {
+  * address_id : bigint <<PK>> <<identity>>
+  --
+  * user_id : bigint <<FK>>
+  * streetname : text
+  * streetnummber : text
+  * city : text
+  * state : text
+  * postal_code : text
+  country : text
+  latitude : numeric(8,6)
+  longitude : numeric(9,6)
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+  ..
+  CHECK latitude_range: latitude BETWEEN -90 AND 90
+  CHECK longitude_range: longitude BETWEEN -180 AND 180
+  CHECK coordinates_complete:
+    beide gesetzt oder beide NULL
+}
+
+entity "CollectionTimeWindows" as time_windows {
+  * window_id : bigint <<PK>> <<identity>>
+  --
+  * address_id : bigint <<FK>>
+  * weekday : smallint
+  * start_time : time
+  * end_time : time
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+  ..
+  CHECK weekday BETWEEN 0 AND 6
+  CHECK window_valid: start_time < end_time
+  EXCLUDE no_overlapping_window:
+    (address_id =, weekday =,
+     timerange(start_time, end_time) &&)
+}
+
+entity "Authors" as authors {
+  * author_id : bigint <<PK>> <<identity>>
+  --
+  * name : text
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+}
+
+entity "Books" as books {
+  * book_id : bigint <<PK>> <<identity>>
+  --
+  * title : text
+  published_date : date
+  genre : genre
+  language : book_language
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+}
+
+entity "BookAuthors" as book_authors {
+  * book_id : bigint <<PK>> <<FK>>
+  * author_id : bigint <<PK>> <<FK>>
+  ..
+  INDEX book_authors_author_id_idx: (author_id)
+}
+
+entity "Book_copy" as book_copie {
+  * book_copie_id : bigint <<PK>> <<identity>>
+  --
+  * book_id : bigint <<FK>>
+  condition : book_condition
+  * max_lent_duration : integer = 60
+  * collection_address_id : bigint <<FK>>
+  shipping_availability : shipping_availability = 'not_available'
+  ' Ob der Verleiher Versand anbietet oder nicht
+  shipping_cost : numeric(3,2) = 4.00
+  ' numeric (3,2) bedeutet max 9,99€ (bzw. Drei stellen, davon 2 Nachkomma)
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+  ..
+  INDEX book_copy_book_id_idx: (book_id)
+  INDEX book_copy_collection_address_id_idx:
+    (collection_address_id)
+}
+
+entity "Lents" as lents {
+  * lent_id : bigint <<PK>> <<identity>>
+  --
+  * lent_status : lent_status
+  * book_copie_id : bigint <<FK>>
+  * lent_to : bigint <<FK>>
+  shipping_requested : boolean = false
+  * lent_startdate : timestamptz = now()
+  * lent_enddate : timestamptz = now() + 60 days
+  * lent_requesttimestamp : timestamptz = now()
+  return_date : timestamptz
+  ..
+  CHECK lent_dates_valid:
+    lent_startdate < lent_enddate
+  CHECK lent_date_max_duration:
+    lent_enddate <= lent_startdate + 120 days
+  UNIQUE INDEX lents_one_open_per_copy:
+    (book_copie_id)
+    WHERE lent_status IN ('accepted', 'active')
+}
+
+entity "Shipping" as shipping {
+  * shipping_id : bigint <<PK>> <<identity>>
+  --
+  * lent_id : bigint <<FK>>
+  * shipping_status : shipping_status
+  tracking_number : text <<UQ>>
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+}
+
+entity "Reviews" as reviews {
+  * review_id : bigint <<PK>> <<identity>>
+  --
+  * lent_id : bigint <<FK>> <<UQ>>
+  * rating : integer
+  comment : text
+  * created_at : timestamptz = now()
+  * updated_at : timestamptz = now()
+  ..
+  CHECK rating BETWEEN 1 AND 5
+}
+
+entity "Messages" as messages {
+  * message_id : bigint <<PK>> <<identity>>
+  --
+  * sender_id : bigint <<FK>>
+  * receiver_id : bigint <<FK>>
+  * content : text 'Naricht Inhalt
+  * sent_at : timestamptz = now()
+  * read_status : boolean = false
+  ..
+  CHECK message_not_self: sender_id <> receiver_id
+}
+
+entity "Protocols" as protocols {
+  * protocol_id : bigint <<PK>> <<identity>>
+  --
+  book_copie_id : bigint <<FK>>
+  user_id : bigint <<FK>>
+  * protocol_type : protocol_type
+  details : text
+  * created_at : timestamptz = now()
+}
+
+' ========== Beziehungen ==========
+users ||--o{ user_addr : "wohnt an >"
+users ||--o{ coll_addr : "besitzt >"
+coll_addr ||--o{ time_windows : "hat Abholzeiten >"
+coll_addr ||--o{ book_copie : "ist Abholort von >"
+
+books ||--o{ book_authors : "geschrieben von >"
+authors ||--o{ book_authors : "schreibt >"
+books ||--o{ book_copie : "Exemplar von <"
+
+book_copie ||--o{ lents : "wird verliehen >"
+users ||--o{ lents : "lent_to (Ausleiher) >"
+
+lents ||--o{ shipping : "wird versendet >"
+lents ||--o| reviews : "wird bewertet >"
+
+users ||--o{ messages : "sender_id >"
+users ||--o{ messages : "receiver_id >"
+
+book_copie |o--o{ protocols : "betrifft <"
+users |o--o{ protocols : "löst aus >"
+
+' ========== Notizen ==========
+note right of users::role
+  ENUM user_role:
+  user | moderator | admin
+end note
+
+note right of book_copie::max_lent_duration
+  Maximale Leihdauer in Tagen.
+end note
+
+note right of book_copie::collection_address_id
+  ON DELETE RESTRICT
+  Besitzer = CollectionAdresses.user_id
+end note
+
+note right of book_copie::book_id
+  ON DELETE RESTRICT
+end note
+
+note right of book_authors::author_id
+  ON DELETE RESTRICT
+end note
+
+note right of lents::lent_status
+  ENUM lent_status:
+  requested -> accepted -> active -> returned
+  oder requested -> rejected
+end note
+
+note left of lents
+  Kein lent_from: Der Verleiher wird abgeleitet über
+  book_copie_id -> Book_copy.collection_address_id
+  -> CollectionAdresses.user_id.
+  Er kann dadurch nicht vom Besitzer abweichen.
+  Ausleiher <> Besitzer prüft die Funktion create_book_request
+  (nicht per CHECK möglich, da tabellenübergreifend).
+end note
+
+note bottom of shipping
+  Empfänger und Exemplar
+  über Lents (lent_to, book_copie_id)
+  shipping_status: pending | shipped | delivered
+end note
+
+note bottom of reviews
+  Nur wer ausgeliehen hat, kann bewerten.
+  Verfasser = Lents.lent_to
+  Buch über Lents -> Book_copy.book_id
+  UNIQUE: eine Bewertung pro Ausleihe
+  Erst nach Rückgabe: prüft write_review
+end note
+
+note right of time_windows::start_time
+  timerange = eigener RANGE-Typ über time.
+  Ende exklusiv: 10–12 und 12–14 erlaubt.
+  EXCLUDE braucht Extension btree_gist.
+end note
+
+note right of protocols::protocol_type
+  lending | returning | create_book …
+end note
+
+note bottom of protocols
+  FKs nullable + ON DELETE SET NULL:
+  Protokoll bleibt beim Löschen erhalten.
+end note
+
+note bottom of book_copie
+  Unterscheidung von Buch und Buch Exemplar passiert
+  automatisch und muss nicht vom Benutzer selber durchgeführt werden.
+end note
+
+@enduml
