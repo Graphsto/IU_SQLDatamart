@@ -1,0 +1,9 @@
+# exclude all, only include necessary files
+*
+!Phase2/
+!docker/init.sh
+
+# exclude test scripts
+Phase2/6.1testFunctions.sql
+Phase2/9createTestQueries.sql
+Phase2/createFramesAndWindow.sql

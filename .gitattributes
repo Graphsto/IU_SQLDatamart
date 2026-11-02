@@ -1,0 +1,8 @@
+* text=auto # how git treats files. Good for cross-platform
+
+# Scripts, that run in the Linux container: always LF
+*.sh         text eol=lf
+*.sql        text eol=lf
+Dockerfile   text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
