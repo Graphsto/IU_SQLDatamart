@@ -1,0 +1,50 @@
+# Disposable stack for the API tests. Completely separate from the development stack:
+# own project name, own network, own database container and volume, no published ports.
+# The development database (docker-compose.yml, service "db") is never touched.
+#
+#   docker compose -f api/docker-compose.test.yml run --rm tests
+#   docker compose -f api/docker-compose.test.yml down -v
+name: buecherboerse-api-test
+
+services:
+  db-test:
+    build:
+      context: ..
+      dockerfile: docker/dockerfile
+    image: buechertausch-db:test
+    # The init of this database ends with an error (Phase2/9grantPrivileges.sql refers to a view that does not
+    # exist), the container exits once and the second start skips the init. See Phase3/API_Testbericht.md, F1.
+    restart: on-failure:3
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test-postgres-pw
+      ADMIN_DB_PASSWORD: test-admin-pw
+      APP_DB_PASSWORD: test-app-pw
+      LOAD_DUMMY_DATA: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d buechertausch"]
+      interval: 3s
+      retries: 40
+
+  tests:
+    build:
+      context: .
+      target: test
+    depends_on:
+      db-test:
+        condition: service_started
+    environment:
+      DB_HOST: db-test
+      DB_NAME: buechertausch
+      DB_USER: app_user
+      DB_PASSWORD: test-app-pw
+      API_PUBLIC_URL: http://localhost:8000
+      # every pytest session reloads the seed into this disposable database (see tests/conftest.py)
+      ALLOW_TEST_DB_RESET: "1"
+      DB_ADMIN_USER: admin_user
+      DB_ADMIN_PASSWORD: test-admin-pw
+      SEED_SQL: /seed/7createDummyData.sql
+    volumes:
+      - ../Phase2/7createDummyData.sql:/seed/7createDummyData.sql:ro
+    # rollback tests first, then the tests that really commit (each session starts from the freshly loaded seed)
+    command: ["sh", "-c", "REQUIRE_FULL_COVERAGE=1 pytest -q -m 'not commit' && pytest -q -m commit"]

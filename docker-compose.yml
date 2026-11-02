@@ -2,7 +2,7 @@ services:
   db:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/dockerfile
     image: buechertausch-db:latest
     restart: unless-stopped
     environment:
@@ -17,5 +17,51 @@ services:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d buechertausch"]
       interval: 5s
       retries: 12
+
+  # Test API on top of the database (api/). Dev header authentication only: see README.md.
+  api:
+    build:
+      context: ./api
+      target: runtime
+    image: buechertausch-api:latest
+    restart: unless-stopped
+    # service_started on purpose: the first start of the db container ends with an error and a restart (see Phase3/API_Testbericht.md, F1).
+    # The API waits for the database itself and answers 503 on /health until it is reachable.
+    depends_on:
+      db:
+        condition: service_started
+    environment:
+      DB_HOST: db
+      DB_NAME: buechertausch
+      DB_USER: app_user
+      DB_PASSWORD: ${APP_DB_PASSWORD}
+      API_PUBLIC_URL: http://localhost:${API_PORT:-8000}
+      DOCS_PUBLIC_URL: http://localhost:${DOCS_PORT:-8080}
+      CORS_ORIGINS: http://localhost:${DOCS_PORT:-8080},http://127.0.0.1:${DOCS_PORT:-8080}
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+  # Dashboard: API documentation and test environment in one (Swagger UI, "Try it out").
+  # The browser loads the OpenAPI document straight from the API, so the URL must be reachable from the host.
+  docs:
+    image: swaggerapi/swagger-ui:v5.34.1
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      SWAGGER_JSON_URL: http://localhost:${API_PORT:-8000}/openapi.json
+      PERSIST_AUTHORIZATION: "true"
+      TRY_IT_OUT_ENABLED: "true"
+      DISPLAY_REQUEST_DURATION: "true"
+      DEEP_LINKING: "true"
+      DOC_EXPANSION: list
+      VALIDATOR_URL: ""  # no calls to the online validator
+    ports: ["127.0.0.1:${DOCS_PORT:-8080}:8080"]
 volumes:
   pgdata:
