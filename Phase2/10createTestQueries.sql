@@ -18,3 +18,4 @@ WHERE sender_id = 2;
 -- List Messages to a specific user
 SELECT * FROM "Messages"
 WHERE receiver_id = 2;
+
